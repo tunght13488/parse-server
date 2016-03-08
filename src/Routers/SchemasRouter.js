@@ -47,7 +47,7 @@ function createSchema(req) {
   }
 
   return req.config.database.loadSchema()
-    .then(schema => schema.addClassIfNotExists(className, req.body.fields))
+    .then(schema => schema.addClassIfNotExists(className, req.body.fields,  req.body.classLevelPermissions))
     .then(result => ({ response: Schema.mongoSchemaToSchemaAPIResponse(result) }));
 }
 
@@ -61,57 +61,10 @@ function modifySchema(req) {
 
   return req.config.database.loadSchema()
     .then(schema => {
-      if (!schema.data[className]) {
-        throw new Parse.Error(Parse.Error.INVALID_CLASS_NAME, `Class ${req.params.className} does not exist.`);
-      }
-
-      let existingFields = Object.assign(schema.data[className], {_id: className});
-      Object.keys(submittedFields).forEach(name => {
-        let field = submittedFields[name];
-        if (existingFields[name] && field.__op !== 'Delete') {
-          throw new Parse.Error(255, `Field ${name} exists, cannot update.`);
-        }
-        if (!existingFields[name] && field.__op === 'Delete') {
-          throw new Parse.Error(255, `Field ${name} does not exist, cannot delete.`);
-        }
-      });
-
-      let newSchema = Schema.buildMergedSchemaObject(existingFields, submittedFields);
-      let mongoObject = Schema.mongoSchemaFromFieldsAndClassName(newSchema, className);
-      if (!mongoObject.result) {
-        throw new Parse.Error(mongoObject.code, mongoObject.error);
-      }
-
-      // Finally we have checked to make sure the request is valid and we can start deleting fields.
-      // Do all deletions first, then a single save to _SCHEMA collection to handle all additions.
-      let deletionPromises = [];
-      Object.keys(submittedFields).forEach(submittedFieldName => {
-        if (submittedFields[submittedFieldName].__op === 'Delete') {
-          let promise = schema.deleteField(submittedFieldName, className, req.config.database);
-          deletionPromises.push(promise);
-        }
-      });
-
-      return Promise.all(deletionPromises)
-        .then(() => new Promise((resolve, reject) => {
-          schema.collection.update({_id: className}, mongoObject.result, {w: 1}, (err, docs) => {
-            if (err) {
-              reject(err);
-            }
-            resolve({ response: Schema.mongoSchemaToSchemaAPIResponse(mongoObject.result)});
-          })
-        }));
+      return schema.updateClass(className, submittedFields, req.body.classLevelPermissions, req.config.database);
+    }).then((result) => {
+        return Promise.resolve({response: result});
     });
-}
-
-function setSchemaPermissions(req) {
-  var className = req.params.className;
-  return req.config.database.loadSchema()
-    .then(schema => {
-      return schema.setPermissions(className, req.body);
-  }).then((res) => {
-    return Promise.resolve({response: {}});
-  });
 }
 
 function getSchemaPermissions(req) {
@@ -187,8 +140,6 @@ export class SchemasRouter extends PromiseRouter {
     this.route('POST', '/schemas', middleware.promiseEnforceMasterKeyAccess, createSchema);
     this.route('POST', '/schemas/:className', middleware.promiseEnforceMasterKeyAccess, createSchema);
     this.route('PUT', '/schemas/:className', middleware.promiseEnforceMasterKeyAccess, modifySchema);
-    this.route('GET', '/schemas/:className/permissions', middleware.promiseEnforceMasterKeyAccess, getSchemaPermissions);
-    this.route('PUT', '/schemas/:className/permissions', middleware.promiseEnforceMasterKeyAccess, setSchemaPermissions);
     this.route('DELETE', '/schemas/:className', middleware.promiseEnforceMasterKeyAccess, deleteSchema);
   }
 }
