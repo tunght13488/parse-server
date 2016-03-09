@@ -63,7 +63,8 @@
     "posttest": "./node_modules/.bin/mongodb-runner stop",
     "coverage": "cross-env COVERAGE_OPTION='./node_modules/babel-istanbul/lib/cli.js cover -x **/spec/**' npm test",
     "start": "node ./bin/parse-server",
-    "prepublish": "npm run build"
+    "prepublish": "npm run build",
+    "postinstall": "npm run build"
   },
   "engines": {
     "node": ">=4.3"
